@@ -57,6 +57,51 @@ namespace fs = std::filesystem;
 using namespace std::chrono_literals;
 namespace u = oc::util;
 
+static constexpr const char* kVersion = "0.3.0";
+static constexpr const char* kImplementation = "cpp";
+static const long long kServerStartedMs = u::nowMillis();
+static constexpr int kResultScanLimit = 20000;
+
+static std::vector<std::string> kEndpoints = {
+    "/api/info", "/api/status", "/api/config", "/api/validate",
+    "/api/start", "/api/stop", "/api/results", "/api/logs",
+    "/api/export", "/api/events"};
+static std::vector<std::string> kCompliance = {
+    "遵守 robots.txt", "遵守 Crawl-delay", "默认限速",
+    "限深限页", "不跟随外链", "不绕过登录/验证码"};
+
+static std::string platformName() {
+#ifdef _WIN32
+    return "Windows";
+#elif defined(__APPLE__)
+    return "macOS";
+#else
+    return "Linux";
+#endif
+}
+
+static Json infoJson() {
+    Json j = Json::makeObject();
+    j.set("implementation", Json(kImplementation));
+    j.set("language", Json("C++20"));
+    j.set("version", Json(kVersion));
+    j.set("platform", Json(platformName()));
+    j.set("started_at", Json(u::isoNow()));
+    j.set("uptime_seconds", Json(static_cast<double>(u::nowMillis() - kServerStartedMs) / 1000.0));
+    Json endpoints = Json::makeArray();
+    for (const auto& s : kEndpoints) endpoints.push(Json(s));
+    Json compliance = Json::makeArray();
+    for (const auto& s : kCompliance) compliance.push(Json(s));
+    Json backends = Json::makeArray();
+    backends.push(Json("jsonl"));
+    backends.push(Json("none"));
+    j.set("endpoints", endpoints);
+    j.set("compliance_defaults", compliance);
+    j.set("storage_backends", backends);
+    j.set("result_scan_limit", Json(kResultScanLimit));
+    return j;
+}
+
 // ============================================================ 通用小工具
 static Json toArr(const std::vector<std::string>& v) {
     Json a = Json::makeArray();
@@ -193,7 +238,7 @@ void Config::validate() const {
         throw std::runtime_error("storage 必须是 jsonl 或 none");
 }
 
-const char* versionString() { return "OpenCrawlerCpp 0.2.0"; }
+const char* versionString() { return "OpenCrawlerCpp 0.3.0"; }
 
 Json validateConfig(const Config& cfg) {
     cfg.validate();
@@ -913,6 +958,45 @@ public:
         }
         return out;
     }
+    // 与 Python / Java 版一致的筛选查询：{items, total, limit, offset}。
+    static Json query(const std::string& dir, int limit,
+                      const std::string& q, const std::string& kind, int offset) {
+        std::ifstream in((fs::path(dir) / "items.jsonl").string());
+        std::vector<std::string> lines;
+        std::string line;
+        while (std::getline(in, line)) {
+            lines.push_back(line);
+            if (lines.size() > static_cast<size_t>(kResultScanLimit))
+                lines.erase(lines.begin());
+        }
+        std::string needle = lower(q), wanted = lower(kind);
+        std::vector<Json> matched;
+        for (const auto& raw : lines) {
+            Json row;
+            try { row = Json::parse(raw); } catch (...) { continue; }
+            if (!row.isObject()) continue;
+            const Json& data = row.get("data").isObject() ? row.get("data") : row;
+            std::string rowKind = lower(row.get("kind").asString(data.get("kind").asString("page")));
+            if (!wanted.empty() && rowKind != wanted) continue;
+            if (!needle.empty()) {
+                std::string url = row.get("url").asString(data.get("url").asString());
+                std::string title = data.get("title").asString(data.get("name").asString());
+                if (lower(url + " " + title).find(needle) == std::string::npos) continue;
+            }
+            matched.push_back(row);
+        }
+        int total = static_cast<int>(matched.size());
+        int end = std::max(0, total - std::max(0, offset));
+        int start = std::max(0, end - std::max(1, limit));
+        Json items = Json::makeArray();
+        for (int i = start; i < end; ++i) items.push(matched[static_cast<size_t>(i)]);
+        Json out = Json::makeObject();
+        out.set("items", items);
+        out.set("total", Json(total));
+        out.set("limit", Json(limit));
+        out.set("offset", Json(offset));
+        return out;
+    }
     std::string file() const { return "items.jsonl"; }
 private:
     std::mutex mu_;
@@ -949,7 +1033,7 @@ struct Metrics {
         s.set("summary", summary);
         s.set("error", Json(""));
         s.set("output_dir", Json(outputDir));
-        s.set("version", Json("0.2.0"));
+        s.set("version", Json(kVersion));
         return s;
     }
 };
@@ -1361,13 +1445,23 @@ public:
         else {
             s = Json::makeObject();
             s.set("requests", Json(0)); s.set("succeeded", Json(0));
-            s.set("failed", Json(0)); s.set("items", Json(0));
+            s.set("failed", Json(0)); s.set("skipped", Json(0));
+            s.set("items", Json(0)); s.set("duplicates", Json(0));
+            s.set("bytes", Json(0)); s.set("links_discovered", Json(0));
             s.set("inflight", Json(0)); s.set("frontier", Json::makeObject());
             s.set("requests_per_second", Json(0.0)); s.set("elapsed_seconds", Json(0.0));
             s.set("adaptive", Json::parse("{\"enabled\":false}"));
             s.set("summary", Json());
         }
-        s.set("version", Json("0.2.0"));
+        for (const char* key : {"skipped", "duplicates", "bytes", "links_discovered",
+                               "requests_per_second", "elapsed_seconds"})
+            if (!s.has(key)) s.set(key, Json(0));
+        if (!s.has("frontier")) s.set("frontier", Json::makeObject());
+        if (!s.has("adaptive")) s.set("adaptive", Json::parse("{\"enabled\":false}"));
+        s.set("version", Json(kVersion));
+        s.set("implementation", Json(kImplementation));
+        s.set("platform", Json(platformName()));
+        s.set("uptime_seconds", Json(static_cast<double>(u::nowMillis() - kServerStartedMs) / 1000.0));
         s.set("running", Json(running_.load()));
         s.set("error", Json(error_));
         s.set("output_dir", Json(cfg_.outputDir));
@@ -1414,7 +1508,8 @@ private:
                     }
                     sleepMs(1000);
                 }
-            } else if (path == "/api/status") json(200, status());
+            } else if (path == "/api/info") json(200, infoJson());
+            else if (path == "/api/status") json(200, status());
             else if (path == "/api/config") {
                 if (method == "POST") {
                     if (running_.load()) { err(409, "抓取正在运行，请先停止再修改配置"); return; }
@@ -1430,8 +1525,16 @@ private:
                 } else json(200, cfg_.toJson());
             } else if (path == "/api/validate") {
                 Config c = cfg_;
-                c.apply(Json::parse(rq.body));
-                json(200, validateConfig(c));
+                c.apply(rq.body.empty() ? Json::makeObject() : Json::parse(rq.body));
+                try {
+                    json(200, validateConfig(c));
+                } catch (const std::exception& e) {
+                    // 契约：三语言统一为 400 + {valid:false, error}
+                    Json bad = Json::makeObject();
+                    bad.set("valid", Json(false));
+                    bad.set("error", Json(e.what()));
+                    json(400, bad);
+                }
             } else if (path == "/api/start") {
                 if (running_.load()) { err(409, "已有任务在运行"); return; }
                 Config c = cfg_;
@@ -1470,15 +1573,17 @@ private:
                 o.set("ok", Json(true));
                 json(200, o);
             } else if (path == "/api/results") {
-                int limit = 100;
                 auto q = u::parseQuery(rq.query);
-                if (q.count("limit")) { try { limit = std::stoi(q["limit"]); } catch (...) { } }
-                limit = std::max(1, std::min(1000, limit));
-                Json arr = Json::makeArray();
-                for (const auto& row : Storage::tail(cfg_.outputDir, limit)) arr.push(row);
-                Json o = Json::makeObject();
-                o.set("items", arr);
-                json(200, o);
+                auto intParam = [&](const char* key, int def, int low, int high) {
+                    if (!q.count(key)) return def;
+                    try { return std::max(low, std::min(high, std::stoi(q[key]))); }
+                    catch (...) { return def; }
+                };
+                json(200, Storage::query(cfg_.outputDir,
+                    intParam("limit", 100, 1, 1000),
+                    q.count("q") ? q["q"] : "",
+                    q.count("kind") ? q["kind"] : "",
+                    intParam("offset", 0, 0, 1000000)));
             } else if (path == "/api/logs") {
                 auto q = u::parseQuery(rq.query);
                 int since = q.count("since") ? std::atoi(q["since"].c_str()) : 0;
@@ -1686,8 +1791,41 @@ bool selfTest() {
         check("桌面服务 /api/status 与首页",
             status.status == 200 && status.body.find("version") != std::string::npos
                 && html.status == 200 && html.body.find("OpenCrawlerLab") != std::string::npos, "");
+        check("状态快照标识实现与完整指标",
+            status.body.find("\"implementation\":\"cpp\"") != std::string::npos
+                && status.body.find("uptime_seconds") != std::string::npos
+                && status.body.find("duplicates") != std::string::npos, "");
+        HttpResult info = httpGet(app.base() + "/api/info", c);
+        check("桌面服务 /api/info 标识实现", info.status == 200
+            && info.body.find("\"implementation\":\"cpp\"") != std::string::npos
+            && info.body.find("0.3.0") != std::string::npos, "");
+        HttpResult results = httpGet(app.base() + "/api/results?limit=5&q=zzz", c);
+        check("结果接口返回 total/limit/offset", results.status == 200
+            && results.body.find("\"total\"") != std::string::npos
+            && results.body.find("\"offset\"") != std::string::npos, "");
+        HttpResult invalid = httpGet(app.base() + "/api/config", c);
+        check("配置接口可用", invalid.status == 200, "");
         app.stop();
     } catch (const std::exception& e) { check("桌面服务 /api/status 与首页", false, e.what()); }
+
+    // --- 结果筛选契约 ---
+    try {
+        std::string dir = (fs::temp_directory_path() / "ocl-cpp-query").string();
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        std::ofstream out((fs::path(dir) / "items.jsonl").string());
+        out << "{\"url\":\"https://a/one\",\"kind\":\"page\",\"data\":{\"title\":\"Alpha\"}}\n"
+            << "{\"url\":\"https://a/two\",\"kind\":\"sitemap\",\"data\":{\"title\":\"Sitemap\"}}\n"
+            << "{\"url\":\"https://a/three\",\"kind\":\"page\",\"data\":{\"title\":\"Beta\"}}\n";
+        out.close();
+        Json all = Storage::query(dir, 100, "", "", 0);
+        Json pages = Storage::query(dir, 100, "", "page", 0);
+        Json hits = Storage::query(dir, 100, "alpha", "", 0);
+        Json older = Storage::query(dir, 2, "", "", 1);
+        check("结果筛选：全量/类型/关键字/offset",
+            all.get("total").asInt() == 3 && pages.get("total").asInt() == 2
+                && hits.get("total").asInt() == 1 && older.get("items").size() == 2, "");
+    } catch (const std::exception& e) { check("结果筛选：全量/类型/关键字/offset", false, e.what()); }
 
     oc::net::cleanupSockets();
     std::cout << (g_failures == 0 ? "SELFTEST PASS" : "SELFTEST FAIL") << std::endl;

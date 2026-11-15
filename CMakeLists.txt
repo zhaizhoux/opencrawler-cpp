@@ -1,7 +1,7 @@
 # OpenCrawlerCpp —— 零第三方依赖的 C++20 合规爬虫（学习用途）
 # Windows 用 WinHTTP + Winsock2；非 Windows 用内置 POSIX socket（HTTP）。
 cmake_minimum_required(VERSION 3.20)
-project(OpenCrawlerCpp VERSION 0.2.0 LANGUAGES CXX)
+project(OpenCrawlerCpp VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -19,6 +19,22 @@ static bool Exists(const std::wstring& p) {
     return GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
+static std::wstring Parent(const std::wstring& path) {
+    size_t pos = path.find_last_of(L"\\/");
+    return pos == std::wstring::npos ? std::wstring(L".") : path.substr(0, pos);
+}
+
+// 启动器放在项目根目录、desktop\ 或 build\ 下都能找到目标文件。
+static std::wstring FindFile(const std::wstring& here, const wchar_t* relative) {
+    const std::wstring candidates[] = {
+        here + L"\\" + relative,
+        here + L"\\..\\" + relative,
+        here + L"\\..\\..\\" + relative,
+    };
+    for (const auto& p : candidates) if (Exists(p)) return p;
+    return L"";
+}
+
 static bool Run(const std::wstring& app, const std::wstring& args,
                 const std::wstring& dir, bool wait = false) {
     std::vector<wchar_t> cmd(args.begin(), args.end());
@@ -56,23 +72,24 @@ static std::wstring ExtraArgs() {
 }
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-    std::wstring here = DirOfModule();
-    std::wstring root = here + L"\\..";
-    std::wstring program = root + L"\\build\\opencrawler-cpp.exe";
-    std::wstring build = root + L"\\build.bat";
+    const std::wstring here = DirOfModule();
+    std::wstring program = FindFile(here, L"build\\opencrawler-cpp.exe");
+    const std::wstring root = program.empty() ? here : Parent(Parent(program));
 
-    if (!Exists(program)) {
-        if (!Exists(build) || !Run(L"", L"cmd.exe /c \"" + build + L"\"", root, true)) {
+    if (program.empty()) {
+        std::wstring build = FindFile(here, L"build.bat");
+        if (build.empty() || !Run(L"", L"cmd.exe /c \"" + build + L"\"", Parent(build), true)) {
             Fail(L"找不到 build.bat，请先执行 build.bat 构建主程序。");
             return 1;
         }
+        program = FindFile(here, L"build\\opencrawler-cpp.exe");
     }
-    if (!Exists(program)) {
+    if (program.empty()) {
         Fail(L"构建未生成 build\\opencrawler-cpp.exe。\n"
              L"请确认已安装 CMake、Ninja 与 MinGW-w64 g++（C++20）。");
         return 1;
     }
-    std::wstring extra = ExtraArgs();
+    const std::wstring extra = ExtraArgs();
     std::wstring args = L"\"" + program + L"\" desktop" + (extra.empty() ? L"" : L" " + extra);
     if (Run(program, args, root)) return 0;
     Fail(L"无法启动 build\\opencrawler-cpp.exe desktop。\n"
