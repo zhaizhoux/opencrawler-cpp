@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: 构建
+        run: bash build.sh
+      - name: 版本与 dry-run
+        run: |
+          ./build/opencrawler-cpp version
+          ./build/opencrawler-cpp crawl --seed https://example.com/ --dry-run
+      - name: 内置自测
+        run: ./build/opencrawler-cpp selftest
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+      - name: 构建
+        run: bash build.sh
+      - name: 版本与自测
+        run: |
+          ./build/opencrawler-cpp.exe version
+          ./build/opencrawler-cpp.exe selftest

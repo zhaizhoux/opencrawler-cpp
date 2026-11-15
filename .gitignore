@@ -1,0 +1,28 @@
+# 构建产物
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+*.o
+*.obj
+*.a
+*.lib
+*.exe
+*.pdb
+*.ilk
+
+# 运行输出
+output/
+dist/
+*.log
+*.jsonl
+*.journal
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 桌面一键启动器是交付物，需要入库
+!desktop/OpenCrawlerCpp.exe
