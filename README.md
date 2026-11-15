@@ -81,7 +81,7 @@ crawl      --seed <URL>（可重复） -c <file> --concurrency N --max-pages N
            --max-depth N --delay-ms N --out DIR --dry-run
 fetch      <URL>                 只抓一页并打印抽取结果
 demo       --port N              启动本机演示站点（默认 8766）
-selftest                        本机内存站点 + 20 项断言
+selftest                        本机内存站点 + 25 项断言
 desktop    --port N              启动桌面服务与独立窗口（默认 8758）
            --no-browser          只启动服务，不打开窗口
 validate   -c <file>             校验配置
@@ -110,7 +110,7 @@ version / help                  版本号 / 帮助
 build\opencrawler-cpp.exe selftest     # 应输出 SELFTEST PASS
 ```
 
-自测共 20 项，覆盖 JSON 往返、URL 规范化、robots 分组与 Crawl-delay、CSS/JSONPath
+自测共 25 项，覆盖 JSON 往返、URL 规范化、robots 分组与 Crawl-delay、CSS/JSONPath
 抽取、AIMD 升降并发、每域限速不串行、断点续爬、端到端抓取（断言不抓 `/secret`、
 不抓外链、不抓静态资源、JSONL 可回读）与桌面接口。实测输出 `SELFTEST PASS`。
 
