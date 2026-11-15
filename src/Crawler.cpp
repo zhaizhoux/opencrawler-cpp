@@ -1573,8 +1573,14 @@ bool selfTest() {
             && u::trim(select(elems, "h1")[0]->text) == "标题", "");
     }
     {
-        Json root = Json::parse("{\"a\":{\"b\":[{\"c\":42}]}}");
-        check("JSONPath 抽取", root.path("$.a.b[0].c").asInt() == 42, "");
+        Json root = Json::parse("{\"a\":{\"b\":[{\"c\":42},{\"c\":7}],\"d\":{\"e\":\"ok\"}}}");
+        // 回归：曾经用「子对象赋值给自己」实现 path()，属于 UB；
+        // Windows 上偶然通过、Linux 上取到脏值。多路径 + 多次调用覆盖该场景。
+        check("JSONPath 抽取", root.path("$.a.b[0].c").asInt() == 42
+            && root.path("$.a.b[1].c").asInt() == 7
+            && root.path("$.a.d.e").asString() == "ok"
+            && root.path("$.a.nope").isNull()
+            && root.path("$.a.b[9].c").isNull(), "");
     }
     {
         Adaptive fast(16, 1000), broken(32, 1000);

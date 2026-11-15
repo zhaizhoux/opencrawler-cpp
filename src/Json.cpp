@@ -374,7 +374,10 @@ Json Json::parse(const std::string& text) {
 }
 
 Json Json::path(const std::string& expr) const {
-    Json cur = *this;
+    // 用 const 指针遍历，而不是「把子对象赋值给自己」：
+    // cur = cur.get(k) 会让赋值左侧先覆盖自身成员，从而销毁右侧引用的对象，
+    // 属于未定义行为（Windows 上偶然正常，Linux 上会取到脏值）。
+    const Json* cur = this;
     std::size_t i = 0;
     if (i < expr.size() && expr[i] == '$') ++i;
     while (i < expr.size()) {
@@ -383,24 +386,24 @@ Json Json::path(const std::string& expr) const {
             std::size_t j = i;
             while (j < expr.size() && expr[j] != '.' && expr[j] != '[') ++j;
             if (j == i) return nullRef();
-            cur = cur.get(expr.substr(i, j - i));
+            cur = &cur->get(expr.substr(i, j - i));
             i = j;
         } else if (expr[i] == '[') {
             std::size_t close = expr.find(']', i);
             if (close == std::string::npos) return nullRef();
             std::size_t idx = static_cast<std::size_t>(std::strtoull(
                 expr.substr(i + 1, close - i - 1).c_str(), nullptr, 10));
-            cur = cur.at(idx);
+            cur = &cur->at(idx);   // const 重载，越界返回 nullRef()
             i = close + 1;
         } else {
             std::size_t j = i;
             while (j < expr.size() && expr[j] != '.' && expr[j] != '[') ++j;
-            cur = cur.get(expr.substr(i, j - i));
+            cur = &cur->get(expr.substr(i, j - i));
             i = j;
         }
-        if (cur.isNull()) return cur;
+        if (cur->isNull()) return *cur;
     }
-    return cur;
+    return *cur;
 }
 
 } // namespace oc

@@ -13,7 +13,9 @@
 
 namespace oc::net {
 
+#ifdef _WIN32
 static bool g_wsaReady = false;
+#endif
 
 void initSockets() {
 #ifdef _WIN32

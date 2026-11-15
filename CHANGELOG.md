@@ -26,6 +26,10 @@
 - JSONL 由扁平结构统一为三语言共用的 `{url, kind, content_hash, crawled_at, data}` 信封
 - MinGW 与 MSVC 的 WinHTTP 宽字符 API 命名差异，统一使用通用函数名
 - 常驻服务原用临时 `std::promise` 阻塞会立刻返回，改为信号位 + 轮询优雅停机
+- `Json::path()` 曾把自身子对象赋值给自己（UB），Linux CI 上 `JSONPath 抽取` 失败；
+  改为 const 指针零拷贝遍历，并补充多路径 / 越界回归断言
+- SSE 长连接线程 detach 后未排空就析构上层对象，改为带上限的连接计数等待
+- 消除 MinGW/MSVC 的 WinHTTP 宽字符命名差异与 Linux 下的未使用变量警告
 
 ### 已知取舍
 - 非 Windows 的内置 socket 后端仅支持 HTTP（Windows 侧 WinHTTP 支持 HTTPS）
